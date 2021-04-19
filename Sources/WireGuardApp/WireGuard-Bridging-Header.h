@@ -12,4 +12,4 @@
 #include <libproc.h>
 #endif
 
-#include "../../wireguard-go-bridge/wireguard.h"
+//#include "../../wireguard-go-bridge/wireguard.h"

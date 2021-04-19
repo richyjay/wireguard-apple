@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
-// Copyright © 2018-2020 WireGuard LLC. All Rights Reserved.
+// Copyright © 2018-2019 WireGuard LLC. All Rights Reserved.
 
 import Foundation
+import Network
 import NetworkExtension
 import os
 
@@ -21,8 +22,22 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
         wg_log(.info, message: "Starting tunnel from the " + (activationAttemptId == nil ? "OS directly, rather than the app" : "app"))
 
+
+        NSLog("OVPN WG start 180611")
+        let defaults = UserDefaults.standard
+
+        let wgConfig = options?["WgQuickConfig"] as? String
+        if let vpnOptions = options {
+            let excludedArray = vpnOptions["excludeCountries"] as? [String] ?? [String]()
+            defaults.set(excludedArray, forKey: "excludeCountries")
+            let includedArray = vpnOptions["includeCountries"] as? [String] ?? [String]()
+            defaults.set(includedArray, forKey: "includeCountries")
+            let customRoutes = vpnOptions["customRoutes"] as? [String] ?? [String]()
+            defaults.set(customRoutes, forKey: "customRoutes")
+            defaults.synchronize()
+        }
         guard let tunnelProviderProtocol = self.protocolConfiguration as? NETunnelProviderProtocol,
-              let tunnelConfiguration = tunnelProviderProtocol.asTunnelConfiguration() else {
+              let tunnelConfiguration = try? TunnelConfiguration(fromWgQuickConfig: wgConfig!, called: "Flow") else {
             errorNotifier.notify(PacketTunnelProviderError.savedProtocolConfigurationIsInvalid)
             completionHandler(PacketTunnelProviderError.savedProtocolConfigurationIsInvalid)
             return

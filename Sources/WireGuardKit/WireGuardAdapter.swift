@@ -290,6 +290,110 @@ public class WireGuardAdapter {
         condition.lock()
         defer { condition.unlock() }
 
+        // https://www.ipdeny.com/ipblocks/
+
+        let defaults = UserDefaults.standard
+
+        var excludedRoutes = [NEIPv4Route]()
+        var includedRoutes = [NEIPv4Route]()
+
+        for routeType in ["includeCountries", "excludeCountries"] {
+            let networkArray = defaults.object(forKey:routeType) as? [String] ?? [String]()
+
+            for country in networkArray
+            {
+                NSLog("OVPN Country Routing: %@ %@", routeType, country)
+
+                if let path = Bundle.main.path(forResource: country, ofType: "zone", inDirectory: "all-zones") {
+                    do {
+                        let data = try String(contentsOfFile: path, encoding: .utf8)
+                        let myStrings = data.components(separatedBy: .newlines)
+                        for line in myStrings {
+
+                            let array = line.components(separatedBy: "/")
+                            if(array.count < 2) {
+                                continue
+                            }
+
+                            let destinationAddress = array[0]
+                            let cidr = array[1]
+                            let subnet = self.cidrToMask(cidr: cidr)
+                            // NSLog(line.appending(subnet));
+
+                            if(routeType == "excludeCountries") {
+                                excludedRoutes.append(NEIPv4Route(destinationAddress: destinationAddress, subnetMask: subnet))
+                            } else {
+                                includedRoutes.append(NEIPv4Route(destinationAddress: destinationAddress, subnetMask: subnet))
+                            }
+                        }
+                    } catch {
+                        NSLog("OVPN No country files found")
+                    }
+                }
+            }
+        }
+
+        // If we haven't set any specific includes then by default route everything over VPN
+        // If we have set includes, then only send than and by defult dont route everything else
+
+        if(includedRoutes.count < 1) {
+            includedRoutes.append(NEIPv4Route .default())
+
+            // If we're routing everything then exclude local networks
+            // https://en.wikipedia.org/wiki/Reserved_IP_addresses
+
+            let localNetworks = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+            for line in localNetworks {
+                let array = line.components(separatedBy: "/")
+                if(array.count < 2) {
+                    continue
+                }
+
+                let destinationAddress = array[0]
+                let cidr = array[1]
+                let subnet = self.cidrToMask(cidr: cidr)
+                excludedRoutes.append(NEIPv4Route(destinationAddress: destinationAddress, subnetMask: subnet))
+            }
+
+            let networkArray = defaults.object(forKey:"customRoutes") as? [String] ?? [String]()
+            for line in networkArray {
+                let array = line.components(separatedBy: "/")
+                if(array.count < 2) {
+                    continue
+                }
+
+                let destinationAddress = array[0]
+                let cidr = array[1]
+                let subnet = self.cidrToMask(cidr: cidr)
+                excludedRoutes.append(NEIPv4Route(destinationAddress: destinationAddress, subnetMask: subnet))
+                NSLog("OVPN Excluded Custom Route: %@", line)
+            }
+        } else {
+            excludedRoutes.append(NEIPv4Route .default())
+            let networkArray = defaults.object(forKey:"customRoutes") as? [String] ?? [String]()
+            for line in networkArray {
+                let array = line.components(separatedBy: "/")
+                if(array.count < 2) {
+                    continue
+                }
+
+                let destinationAddress = array[0]
+                let cidr = array[1]
+                let subnet = self.cidrToMask(cidr: cidr)
+                includedRoutes.append(NEIPv4Route(destinationAddress: destinationAddress, subnetMask: subnet))
+                NSLog("OVPN Included Custom Route: %@", line)
+            }
+
+            //settings.ipv4Settings?.excludedRoutes = [NEIPv4Route(destinationAddress: "107.191.37.75", subnetMask: "255.255.255.255")]
+
+        }
+
+        NSLog("OVPN Included Routes: %d", includedRoutes.count)
+        NSLog("OVPN Excluded Routes: %d", excludedRoutes.count)
+
+        networkSettings.ipv4Settings?.excludedRoutes = excludedRoutes
+        networkSettings.ipv4Settings?.includedRoutes = includedRoutes
+
         self.packetTunnelProvider?.setTunnelNetworkSettings(networkSettings) { error in
             systemError = error
             condition.signal()
@@ -434,6 +538,50 @@ public class WireGuardAdapter {
         #else
         #error("Unsupported")
         #endif
+    }
+
+
+    func cidrToMask(cidr: String) -> String {
+        var subnet = "255.255.255.0"
+
+        // Convert CIDR format to subnet
+        switch cidr {
+            case "1":subnet="128.0.0.0"
+            case "2":subnet="192.0.0.0"
+            case "3":subnet="224.0.0.0"
+            case "4":subnet="240.0.0.0"
+            case "5":subnet="248.0.0.0"
+            case "6":subnet="252.0.0.0"
+            case "7":subnet="254.0.0.0"
+            case "8":subnet="255.0.0.0"
+            case "9":subnet="255.128.0.0"
+            case "10":subnet="255.192.0.0"
+            case "11":subnet="255.224.0.0"
+            case "12":subnet="255.240.0.0"
+            case "13":subnet="255.248.0.0"
+            case "14":subnet="255.252.0.0"
+            case "15":subnet="255.254.0.0"
+            case "16":subnet="255.255.0.0"
+            case "17":subnet="255.255.128.0"
+            case "18":subnet="255.255.192.0"
+            case "19":subnet="255.255.224.0"
+            case "20":subnet="255.255.240.0"
+            case "21":subnet="255.255.248.0"
+            case "22":subnet="255.255.252.0"
+            case "23":subnet="255.255.254.0"
+            case "24":subnet="255.255.255.0"
+            case "25":subnet="255.255.255.128"
+            case "26":subnet="255.255.255.192"
+            case "27":subnet="255.255.255.224"
+            case "28":subnet="255.255.255.240"
+            case "29":subnet="255.255.255.248"
+            case "30":subnet="255.255.255.252"
+            case "31":subnet="255.255.255.254"
+            case "32":subnet="255.255.255.255"
+            default:subnet="255.255.255.255"
+        }
+
+        return subnet
     }
 }
 
